@@ -182,6 +182,7 @@
   #brokenScene{display:none;text-align:center}
   .broken #boxScene,.broken #letterScene{display:none!important}
   .broken #brokenScene{display:block}
+  .loading #boxScene,.loading #letterScene{display:none!important}
   .broken-art{font-size:64px;margin:26px 0 6px}
   .letter #boxScene{display:none}
   .letter #letterScene{display:block}
@@ -220,7 +221,7 @@
 
 <header class="menubar" aria-hidden="true">
   <b>🍫 빼빼로 편지</b><span class="mi">파일</span><span class="mi">편집</span><span class="mi">보기</span><span class="mi">도움말</span>
-  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v6</span>
+  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v7</span>
 </header>
 
 <div class="desktop">
@@ -335,7 +336,7 @@
 
 <script>
 /* 진단: 휴대폰에서 스크립트 오류가 나면 화면 아래에 빨간 박스로 보여줌 */
-window.APP_VERSION = 'v6';
+window.APP_VERSION = 'v7';
 window.addEventListener('error', function(e){
   var d=document.getElementById('diag'); if(!d) return;
   d.style.display='block';
@@ -755,25 +756,55 @@ $('word').oninput=()=>{ state.w=$('word').value; renderLidPrev(); $('result').cl
 $('to').oninput=()=>{ renderLidPrev(); $('result').classList.remove('show'); };
 $('from').oninput=()=>$('result').classList.remove('show');
 $('msg').oninput=()=>{ $('cnt').textContent=$('msg').value.length; $('result').classList.remove('show'); };
-/* is.gd 무료 단축 서비스로 짧은 링크 만들기 (실패하면 null → 긴 링크 그대로 사용) */
-function shorten(url){
-  return new Promise(res=>{
-    if(url.length > 4900) return res(null);            // is.gd 최대 길이 제한
-    const cb='isgd_'+Date.now(), s=document.createElement('script'); let done=false;
-    const finish=v=>{ if(done) return; done=true; try{ delete window[cb]; }catch(e){} s.remove(); res(v); };
-    window[cb]=d=>finish(d && typeof d.shorturl==='string' && /^https:\/\/is\.gd\/[\w-]+$/.test(d.shorturl) ? d.shorturl : null);
-    s.onerror=()=>finish(null); setTimeout(()=>finish(null), 7000);
-    s.src='https://is.gd/create.php?format=json&callback='+cb+'&url='+encodeURIComponent(url);
-    document.head.appendChild(s);
+/* ---------- 짧은 링크 ----------
+   1순위: 무료 JSON 저장소(jsonblob)에 데이터를 맡기고 우리 주소로 ?s=번호 링크
+   2순위: is.gd 단축 주소
+   둘 다 실패하면 원래 긴 링크 (실패 이유를 알림으로 보여줌) */
+const BLOB_API = 'https://jsonblob.com/api/jsonBlob';
+function withTimeout(promise, ms){ return Promise.race([promise, new Promise((_,rej)=>setTimeout(()=>rej(new Error('시간 초과')), ms))]); }
+async function saveBlob(obj){
+  const r = await withTimeout(fetch(BLOB_API, {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify(obj)}), 8000);
+  if(!r.ok) throw new Error('응답 '+r.status);
+  const loc = r.headers.get('Location') || r.headers.get('X-jsonblob') || '';
+  const id = (loc.match(/([0-9A-Za-z-]{6,64})\/?$/)||[])[1];
+  if(!id) throw new Error('번호를 못 받음');
+  return id;
+}
+async function loadBlob(id){
+  const r = await withTimeout(fetch(BLOB_API+'/'+encodeURIComponent(id), {headers:{'Accept':'application/json'}}), 8000);
+  if(!r.ok) throw new Error('응답 '+r.status);
+  return r.json();
+}
+function isgd(url){
+  return new Promise((res,rej)=>{
+    if(url.length > 4900) return rej(new Error('너무 김'));
+    const cb='isgd_'+Date.now(), sc=document.createElement('script'); let done=false;
+    const finish=(v,err)=>{ if(done) return; done=true; try{ delete window[cb]; }catch(e){} sc.remove(); err ? rej(err) : res(v); };
+    window[cb]=d=>{
+      if(d && typeof d.shorturl==='string' && /^https:\/\/is\.gd\/[\w-]+$/.test(d.shorturl)) finish(d.shorturl);
+      else finish(null, new Error((d && d.errormessage) || '이상한 응답'));
+    };
+    sc.onerror=()=>finish(null, new Error('접속 차단됨')); setTimeout(()=>finish(null, new Error('시간 초과')), 7000);
+    sc.src='https://is.gd/create.php?format=json&callback='+cb+'&url='+encodeURIComponent(url);
+    document.head.appendChild(sc);
   });
+}
+async function shorten(long){
+  const errs=[];
+  try{
+    const u=new URL(long), id=await saveBlob({g:u.searchParams.get('g'), i:u.searchParams.get('i')||undefined});
+    return {url: location.origin + location.pathname + '?s=' + id};
+  }catch(e){ errs.push('저장소: '+e.message); }
+  try{ return {url: await isgd(long)}; }catch(e){ errs.push('is.gd: '+e.message); }
+  return {url:null, errs};
 }
 $('makeBtn').onclick=async()=>{
   if(!$('msg').value.trim()){ toast('편지를 한 줄이라도 써주세요 ✍️'); $('msg').focus(); return; }
   const btn=$('makeBtn'); btn.disabled=true; btn.textContent='⏳ 링크 만드는 중…';
-  const long = buildLink(payload()), short = await shorten(long);
+  const long = buildLink(payload()), {url:short, errs} = await shorten(long);
   btn.disabled=false; btn.textContent='💌 링크 만들기';
   $('link').value = short || long;
-  if(!short) toast('짧은 링크를 못 만들어서 원래 링크로 만들었어요');
+  if(!short) toast('짧은 링크를 못 만들었어요 ('+errs.join(' / ')+')', 7000);
   $('result').classList.add('show');
   $('result').scrollIntoView({behavior:'smooth',block:'center'});
 };
@@ -805,7 +836,7 @@ function setTexts(step){
 }
 function renderView(d, preview){
   viewData = {...d, m: d.m || (preview ? '(여기에 편지 내용이 한 글자씩 써져요 ✍️)' : '')};
-  typeToken++; document.body.classList.remove('opened','letter','broken');
+  typeToken++; document.body.classList.remove('opened','letter','broken','loading');
   $('make').style.display='none'; $('view').style.display='block';
   const box = BOXES[d.b] || BOXES.red;
   document.documentElement.style.setProperty('--box', box.c);
@@ -870,24 +901,43 @@ function confetti(){
     wrap.appendChild(p); }
   document.body.appendChild(wrap); setTimeout(()=>wrap.remove(),5000);
 }
-function toast(msg){ const t=$('toast'); t.querySelector('.tmsg').textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+function toast(msg, ms=2200){ const t=$('toast'); t.querySelector('.tmsg').textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),ms); }
 
 /* ================= 라우팅: ?g=데이터 (예전 링크는 #데이터) 가 있으면 받는 화면 ================= */
-function showBroken(){
-  typeToken++; document.body.classList.remove('opened','letter'); document.body.classList.add('broken');
+function showLoading(){
+  typeToken++; document.body.classList.remove('opened','letter','broken'); document.body.classList.add('loading');
+  $('make').style.display='none'; $('view').style.display='block';
+  $('vWinTitle').textContent='📦 빼빼로 선물'; $('vTitle').textContent='선물 상자를 가져오는 중이에요…'; $('vSub').textContent='잠시만 기다려주세요 🎁';
+}
+function showBroken(sub){
+  typeToken++; document.body.classList.remove('opened','letter','loading'); document.body.classList.add('broken');
   $('make').style.display='none'; $('view').style.display='block';
   $('vWinTitle').textContent='⚠️ 링크 오류';
   $('vTitle').textContent='앗, 링크가 잘렸어요';
-  $('vSub').textContent='선물 정보를 끝까지 읽지 못했어요';
+  $('vSub').textContent=sub || '선물 정보를 끝까지 읽지 못했어요';
 }
-function route(){
+function parseGift(g, i){
+  const data = g ? decode(g) : null;
+  if(!data || typeof data!=='object') return null;
+  if(typeof data.q==='string') data.p = unpackSticks(data.q);
+  if(i) data.img = readLinkImage(i);
+  return data;
+}
+async function route(){
   const sp = new URLSearchParams(location.search);
-  const raw = sp.get('g') || (location.hash.length>1 ? location.hash.slice(1) : '');
-  const data = raw ? decode(raw) : null;
-  if(data && typeof data==='object'){
-    if(typeof data.q==='string') data.p = unpackSticks(data.q);
-    if(sp.get('i')) data.img = readLinkImage(sp.get('i'));
+  const sid = sp.get('s');
+  if(sid){
+    showLoading();
+    try{
+      const blob = await loadBlob(sid);
+      const data = parseGift(blob && blob.g, blob && blob.i);
+      if(data){ renderView(data, false); window.scrollTo(0,0); return; }
+    }catch(e){ console.warn(e); }
+    showBroken('선물 정보를 불러오지 못했어요. 잠시 뒤 다시 열어보세요');
+    return;
   }
+  const raw = sp.get('g') || (location.hash.length>1 ? location.hash.slice(1) : '');
+  const data = parseGift(raw, sp.get('i'));
   if(data && typeof data==='object'){ renderView(data, false); window.scrollTo(0,0); }
   else if(raw){ showBroken(); }
   else { typeToken++; document.body.classList.remove('opened','letter','broken');
