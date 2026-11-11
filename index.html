@@ -221,7 +221,7 @@
 
 <header class="menubar" aria-hidden="true">
   <b>🍫 빼빼로 편지</b><span class="mi">파일</span><span class="mi">편집</span><span class="mi">보기</span><span class="mi">도움말</span>
-  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v7</span>
+  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v8</span>
 </header>
 
 <div class="desktop">
@@ -286,6 +286,7 @@
         <h2 class="ghead">링크가 만들어졌어요</h2>
         <div class="gbox"><div class="grow"><input type="text" id="link" readonly></div></div>
         <button class="btn" id="shareBtn">공유하기</button>
+        <button class="btn ghost" id="isgdBtn" type="button" style="display:none">🔗 is.gd에서 직접 줄이기</button>
         <button class="btn ghost" id="previewBtn">받는 화면 미리보기</button>
       </div>
     </section>
@@ -336,7 +337,7 @@
 
 <script>
 /* 진단: 휴대폰에서 스크립트 오류가 나면 화면 아래에 빨간 박스로 보여줌 */
-window.APP_VERSION = 'v7';
+window.APP_VERSION = 'v8';
 window.addEventListener('error', function(e){
   var d=document.getElementById('diag'); if(!d) return;
   d.style.display='block';
@@ -789,22 +790,26 @@ function isgd(url){
     document.head.appendChild(sc);
   });
 }
-async function shorten(long){
+async function shorten(long){   // is.gd 먼저 → 안 되면 우리 주소 짧은 링크
   const errs=[];
+  try{ return {url: await isgd(long)}; }catch(e){ errs.push('is.gd: '+e.message); }
   try{
     const u=new URL(long), id=await saveBlob({g:u.searchParams.get('g'), i:u.searchParams.get('i')||undefined});
-    return {url: location.origin + location.pathname + '?s=' + id};
+    return {url: location.origin + location.pathname + '?s=' + id, errs};
   }catch(e){ errs.push('저장소: '+e.message); }
-  try{ return {url: await isgd(long)}; }catch(e){ errs.push('is.gd: '+e.message); }
   return {url:null, errs};
 }
+let lastLong = '';
 $('makeBtn').onclick=async()=>{
   if(!$('msg').value.trim()){ toast('편지를 한 줄이라도 써주세요 ✍️'); $('msg').focus(); return; }
   const btn=$('makeBtn'); btn.disabled=true; btn.textContent='⏳ 링크 만드는 중…';
   const long = buildLink(payload()), {url:short, errs} = await shorten(long);
+  lastLong = long;
+  $('isgdBtn').style.display = /^https:\/\/is\.gd\//.test(short||'') ? 'none' : '';
   btn.disabled=false; btn.textContent='💌 링크 만들기';
   $('link').value = short || long;
   if(!short) toast('짧은 링크를 못 만들었어요 ('+errs.join(' / ')+')', 7000);
+  else if(errs && errs.length) toast('is.gd 대신 우리 주소 짧은 링크로 만들었어요 ('+errs.join(' / ')+')', 7000);
   $('result').classList.add('show');
   $('result').scrollIntoView({behavior:'smooth',block:'center'});
 };
@@ -814,6 +819,11 @@ $('shareBtn').onclick=async()=>{
   if(navigator.share){ try{ await navigator.share({title:'빼빼로 편지',text,url}); return; }catch(e){ if(e.name==='AbortError') return; } }
   try{ await navigator.clipboard.writeText(url); toast('링크를 복사했어요! 친구에게 보내세요 💌'); }
   catch(e){ $('link').select(); document.execCommand('copy'); toast('링크를 복사했어요!'); }
+};
+$('isgdBtn').onclick=()=>{   // 자동 요청이 막혀도 is.gd 사이트를 직접 열면 짧은 주소를 받을 수 있음
+  if(!lastLong) return;
+  window.open('https://is.gd/create.php?url='+encodeURIComponent(lastLong), '_blank');
+  toast('is.gd 화면에 나온 짧은 주소를 복사해서 보내주세요', 5000);
 };
 $('previewBtn').onclick=()=>{ renderView(payload(), true); window.scrollTo(0,0); };
 $('backBtn').onclick=()=>{ typeToken++; document.body.classList.remove('opened','letter');
