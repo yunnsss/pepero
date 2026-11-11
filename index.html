@@ -220,7 +220,7 @@
 
 <header class="menubar" aria-hidden="true">
   <b>🍫 빼빼로 편지</b><span class="mi">파일</span><span class="mi">편집</span><span class="mi">보기</span><span class="mi">도움말</span>
-  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v5</span>
+  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v6</span>
 </header>
 
 <div class="desktop">
@@ -335,7 +335,7 @@
 
 <script>
 /* 진단: 휴대폰에서 스크립트 오류가 나면 화면 아래에 빨간 박스로 보여줌 */
-window.APP_VERSION = 'v5';
+window.APP_VERSION = 'v6';
 window.addEventListener('error', function(e){
   var d=document.getElementById('diag'); if(!d) return;
   d.style.display='block';
@@ -755,9 +755,25 @@ $('word').oninput=()=>{ state.w=$('word').value; renderLidPrev(); $('result').cl
 $('to').oninput=()=>{ renderLidPrev(); $('result').classList.remove('show'); };
 $('from').oninput=()=>$('result').classList.remove('show');
 $('msg').oninput=()=>{ $('cnt').textContent=$('msg').value.length; $('result').classList.remove('show'); };
-$('makeBtn').onclick=()=>{
+/* is.gd 무료 단축 서비스로 짧은 링크 만들기 (실패하면 null → 긴 링크 그대로 사용) */
+function shorten(url){
+  return new Promise(res=>{
+    if(url.length > 4900) return res(null);            // is.gd 최대 길이 제한
+    const cb='isgd_'+Date.now(), s=document.createElement('script'); let done=false;
+    const finish=v=>{ if(done) return; done=true; try{ delete window[cb]; }catch(e){} s.remove(); res(v); };
+    window[cb]=d=>finish(d && typeof d.shorturl==='string' && /^https:\/\/is\.gd\/[\w-]+$/.test(d.shorturl) ? d.shorturl : null);
+    s.onerror=()=>finish(null); setTimeout(()=>finish(null), 7000);
+    s.src='https://is.gd/create.php?format=json&callback='+cb+'&url='+encodeURIComponent(url);
+    document.head.appendChild(s);
+  });
+}
+$('makeBtn').onclick=async()=>{
   if(!$('msg').value.trim()){ toast('편지를 한 줄이라도 써주세요 ✍️'); $('msg').focus(); return; }
-  $('link').value = buildLink(payload());
+  const btn=$('makeBtn'); btn.disabled=true; btn.textContent='⏳ 링크 만드는 중…';
+  const long = buildLink(payload()), short = await shorten(long);
+  btn.disabled=false; btn.textContent='💌 링크 만들기';
+  $('link').value = short || long;
+  if(!short) toast('짧은 링크를 못 만들어서 원래 링크로 만들었어요');
   $('result').classList.add('show');
   $('result').scrollIntoView({behavior:'smooth',block:'center'});
 };
