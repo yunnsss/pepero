@@ -173,6 +173,10 @@
   @keyframes shake{0%,82%,100%{transform:rotate(0)}86%{transform:rotate(-2deg)}90%{transform:rotate(2deg)}94%{transform:rotate(-1.5deg)}98%{transform:rotate(1deg)}}
 
   #letterScene{display:none}
+  #brokenScene{display:none;text-align:center}
+  .broken #boxScene,.broken #letterScene{display:none!important}
+  .broken #brokenScene{display:block}
+  .broken-art{font-size:64px;margin:26px 0 6px}
   .letter #boxScene{display:none}
   .letter #letterScene{display:block}
   .postcard{
@@ -287,6 +291,12 @@
   <div class="wbody">
     <div class="vhead"><h1 id="vTitle"></h1><p id="vSub"></p></div>
 
+    <section id="brokenScene">
+      <div class="broken-art">✂️</div>
+      <p style="color:var(--text2);font-size:14px;margin:0 0 4px">메신저에서 긴 링크가 중간에 잘리는 경우가 있어요.<br>보낸 사람에게 링크를 다시 보내달라고 해주세요 🙏</p>
+      <button class="btn" type="button" onclick="location.href=location.pathname">🍫 나도 빼빼로 만들기</button>
+    </section>
+
     <section id="boxScene">
       <div class="box" id="box"></div>
       <button class="btn dark" id="ctaBtn" type="button">🎁 뚜껑 열기</button>
@@ -361,7 +371,7 @@ function encode(obj){
 }
 function decode(str){
   try{
-    str = str.replace(/-/g,'+').replace(/_/g,'/');
+    str = str.replace(/\s/g,'').replace(/-/g,'+').replace(/_/g,'/');
     const bytes = Uint8Array.from(atob(str), ch => ch.charCodeAt(0));
     return JSON.parse(new TextDecoder().decode(bytes));
   }catch(e){ return null; }
@@ -670,12 +680,12 @@ function shrinkImage(file){ // 112px 정사각형, 흰 배경 위에 전체가 �
   return new Promise((res,rej)=>{
     const im=new Image(), u=URL.createObjectURL(file);
     im.onload=()=>{
-      const S=112, c=document.createElement('canvas'); c.width=c.height=S;
+      const S=96, c=document.createElement('canvas'); c.width=c.height=S;
       const x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,S,S);
       const sc=Math.min((S-6)/im.width,(S-6)/im.height), w=im.width*sc, h=im.height*sc;
       x.imageSmoothingQuality='high'; x.drawImage(im,(S-w)/2,(S-h)/2,w,h); URL.revokeObjectURL(u);
-      let d=c.toDataURL('image/webp',.8);
-      if(!d.startsWith('data:image/webp')) d=c.toDataURL('image/jpeg',.82);
+      let d=c.toDataURL('image/webp',.72);
+      if(!d.startsWith('data:image/webp')) d=c.toDataURL('image/jpeg',.72);
       res(d);
     };
     im.onerror=()=>{ URL.revokeObjectURL(u); rej(); };
@@ -698,7 +708,7 @@ $('from').oninput=()=>$('result').classList.remove('show');
 $('msg').oninput=()=>{ $('cnt').textContent=$('msg').value.length; $('result').classList.remove('show'); };
 $('makeBtn').onclick=()=>{
   if(!$('msg').value.trim()){ toast('편지를 한 줄이라도 써주세요 ✍️'); $('msg').focus(); return; }
-  $('link').value = location.origin + location.pathname + '#' + encode(payload());
+  $('link').value = location.origin + location.pathname + '?g=' + encode(payload());
   $('result').classList.add('show');
   $('result').scrollIntoView({behavior:'smooth',block:'center'});
 };
@@ -730,7 +740,7 @@ function setTexts(step){
 }
 function renderView(d, preview){
   viewData = {...d, m: d.m || (preview ? '(여기에 편지 내용이 한 글자씩 써져요 ✍️)' : '')};
-  typeToken++; document.body.classList.remove('opened','letter');
+  typeToken++; document.body.classList.remove('opened','letter','broken');
   $('make').style.display='none'; $('view').style.display='block';
   const box = BOXES[d.b] || BOXES.red;
   document.documentElement.style.setProperty('--box', box.c);
@@ -797,11 +807,20 @@ function confetti(){
 }
 function toast(msg){ const t=$('toast'); t.querySelector('.tmsg').textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
 
-/* ================= 라우팅: #데이터가 있으면 받는 화면 ================= */
+/* ================= 라우팅: ?g=데이터 (예전 링크는 #데이터) 가 있으면 받는 화면 ================= */
+function showBroken(){
+  typeToken++; document.body.classList.remove('opened','letter'); document.body.classList.add('broken');
+  $('make').style.display='none'; $('view').style.display='block';
+  $('vWinTitle').textContent='⚠️ 링크 오류';
+  $('vTitle').textContent='앗, 링크가 잘렸어요';
+  $('vSub').textContent='선물 정보를 끝까지 읽지 못했어요';
+}
 function route(){
-  const data = location.hash.length>1 ? decode(location.hash.slice(1)) : null;
-  if(data){ renderView(data, false); window.scrollTo(0,0); }
-  else { typeToken++; document.body.classList.remove('opened','letter');
+  const raw = new URLSearchParams(location.search).get('g') || (location.hash.length>1 ? location.hash.slice(1) : '');
+  const data = raw ? decode(raw) : null;
+  if(data && typeof data==='object'){ renderView(data, false); window.scrollTo(0,0); }
+  else if(raw){ showBroken(); }
+  else { typeToken++; document.body.classList.remove('opened','letter','broken');
          $('view').style.display='none'; $('make').style.display='block'; renderMaker(); }
 }
 function tick(){
