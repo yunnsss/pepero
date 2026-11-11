@@ -214,7 +214,7 @@
 
 <header class="menubar" aria-hidden="true">
   <b>🍫 빼빼로 편지</b><span class="mi">파일</span><span class="mi">편집</span><span class="mi">보기</span><span class="mi">도움말</span>
-  <span class="clock" id="clock"></span>
+  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v4</span>
 </header>
 
 <div class="desktop">
@@ -321,10 +321,21 @@
 
 </div>
 
+<pre id="diag" style="display:none;position:fixed;left:8px;right:8px;bottom:8px;z-index:99;margin:0;padding:10px;border-radius:10px;
+  background:#fff0f0;color:#b00020;font-size:12px;white-space:pre-wrap;word-break:break-all;box-shadow:0 4px 16px rgba(0,0,0,.2)"></pre>
 <div class="toast" id="toast" role="status" aria-live="polite">
   <div class="ticon">🍫</div><div><b>빼빼로 편지</b><div class="tmsg"></div></div>
 </div>
 
+<script>
+/* 진단: 휴대폰에서 스크립트 오류가 나면 화면 아래에 빨간 박스로 보여줌 */
+window.APP_VERSION = 'v4';
+window.addEventListener('error', function(e){
+  var d=document.getElementById('diag'); if(!d) return;
+  d.style.display='block';
+  d.textContent='⚠️ 오류 ('+window.APP_VERSION+'): '+(e.message||e)+' @'+(e.lineno||'?')+'\n'+navigator.userAgent;
+});
+</script>
 <script>
 /* ================= 옵션 ================= */
 const COATS = {
