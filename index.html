@@ -7,6 +7,12 @@
 <meta name="description" content="빼빼로를 하나하나 꾸미고 편지와 함께 링크로 보내세요">
 <meta property="og:title" content="누군가 당신에게 빼빼로를 보냈어요 🍫">
 <meta property="og:description" content="상자를 열고 편지를 읽어보세요">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yunnsss.github.io/pepero/">
+<meta property="og:image" content="https://yunnsss.github.io/pepero/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Nanum+Pen+Script&display=swap" rel="stylesheet">
 <style>
@@ -214,7 +220,7 @@
 
 <header class="menubar" aria-hidden="true">
   <b>🍫 빼빼로 편지</b><span class="mi">파일</span><span class="mi">편집</span><span class="mi">보기</span><span class="mi">도움말</span>
-  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v4</span>
+  <span class="clock" id="clock"></span><span style="color:#a1a1a6;font-size:11px">v5</span>
 </header>
 
 <div class="desktop">
@@ -329,7 +335,7 @@
 
 <script>
 /* 진단: 휴대폰에서 스크립트 오류가 나면 화면 아래에 빨간 박스로 보여줌 */
-window.APP_VERSION = 'v4';
+window.APP_VERSION = 'v5';
 window.addEventListener('error', function(e){
   var d=document.getElementById('diag'); if(!d) return;
   d.style.display='block';
@@ -375,17 +381,49 @@ const state = {
 };
 
 /* ================= URL 인코딩 (한글 지원 base64url) ================= */
-function encode(obj){
-  const bytes = new TextEncoder().encode(JSON.stringify(obj));
-  let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+function bytesToB64u(bytes){
+  let bin=''; bytes.forEach(b => bin += String.fromCharCode(b));
   return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
+function b64uToBytes(str){
+  str = str.replace(/\s/g,'').replace(/-/g,'+').replace(/_/g,'/');
+  return Uint8Array.from(atob(str), ch => ch.charCodeAt(0));
+}
+function encode(obj){ return bytesToB64u(new TextEncoder().encode(JSON.stringify(obj))); }
 function decode(str){
+  try{ return JSON.parse(new TextDecoder().decode(b64uToBytes(str))); }catch(e){ return null; }
+}
+/* 빼빼로 5개를 15글자로 압축: 한 개당 [코팅][토핑 비트][드리즐] */
+const B32='0123456789abcdefghijklmnopqrstuv';
+function packSticks(p){
+  const C=Object.keys(COATS), T=Object.keys(TOPS), Z=Object.keys(DRIZ);
+  return p.map(st=>B32[Math.max(0,C.indexOf(st.c))]
+    + B32[st.t.filter(k=>TOPS[k]).reduce((m,k)=>m|(1<<T.indexOf(k)),0)]
+    + B32[Math.max(0,Z.indexOf(st.z))]).join('');
+}
+function unpackSticks(q){
+  const C=Object.keys(COATS), T=Object.keys(TOPS), Z=Object.keys(DRIZ), out=[];
+  for(let i=0;i+2<q.length && out.length<5;i+=3){
+    const c=B32.indexOf(q[i]), m=B32.indexOf(q[i+1]), z=B32.indexOf(q[i+2]);
+    out.push({c:C[c]||'choco', t:m<0?[]:T.filter((k,j)=>(m>>j)&1), z:Z[z]||'none'});
+  }
+  return out;
+}
+/* 공유 링크: ?g=설정과 편지  &i=스티커 이미지(있을 때만, 원본 바이트 그대로) */
+function buildLink(d){
+  const {p, img, ...rest} = d;
+  let url = location.origin + location.pathname + '?g=' + encode({...rest, q:packSticks(p)});
+  if(img) url += '&i=' + img.split(',')[1].replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return url;
+}
+function readLinkImage(i){
   try{
-    str = str.replace(/\s/g,'').replace(/-/g,'+').replace(/_/g,'/');
-    const bytes = Uint8Array.from(atob(str), ch => ch.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
-  }catch(e){ return null; }
+    const b=b64uToBytes(i);
+    const mime = b[0]===0x52 ? 'webp' : b[0]===0xFF ? 'jpeg' : b[0]===0x89 ? 'png' : '';
+    if(!mime) return undefined;
+    let bin=''; b.forEach(x=>bin+=String.fromCharCode(x));
+    return `data:image/${mime};base64,${btoa(bin)}`;
+  }catch(e){ return undefined; }
 }
 
 /* ================= SVG 도우미 ================= */
@@ -429,7 +467,7 @@ function charKey(d){
 }
 /* 데이터 정리 (예전 링크 형식도 지원) */
 function topList(x){
-  if(Array.isArray(x.t)) return x.t.filter(k=>TOPS[k]);
+  if(Array.isArray(x.t)) return Object.keys(TOPS).filter(k=>x.t.includes(k));   // 항상 같은 순서 → 보낸 사람과 받는 사람 토핑 배치가 똑같음
   return TOPS[x.t] ? [x.t] : [];
 }
 function sticksOf(d){
@@ -719,7 +757,7 @@ $('from').oninput=()=>$('result').classList.remove('show');
 $('msg').oninput=()=>{ $('cnt').textContent=$('msg').value.length; $('result').classList.remove('show'); };
 $('makeBtn').onclick=()=>{
   if(!$('msg').value.trim()){ toast('편지를 한 줄이라도 써주세요 ✍️'); $('msg').focus(); return; }
-  $('link').value = location.origin + location.pathname + '?g=' + encode(payload());
+  $('link').value = buildLink(payload());
   $('result').classList.add('show');
   $('result').scrollIntoView({behavior:'smooth',block:'center'});
 };
@@ -827,8 +865,13 @@ function showBroken(){
   $('vSub').textContent='선물 정보를 끝까지 읽지 못했어요';
 }
 function route(){
-  const raw = new URLSearchParams(location.search).get('g') || (location.hash.length>1 ? location.hash.slice(1) : '');
+  const sp = new URLSearchParams(location.search);
+  const raw = sp.get('g') || (location.hash.length>1 ? location.hash.slice(1) : '');
   const data = raw ? decode(raw) : null;
+  if(data && typeof data==='object'){
+    if(typeof data.q==='string') data.p = unpackSticks(data.q);
+    if(sp.get('i')) data.img = readLinkImage(sp.get('i'));
+  }
   if(data && typeof data==='object'){ renderView(data, false); window.scrollTo(0,0); }
   else if(raw){ showBroken(); }
   else { typeToken++; document.body.classList.remove('opened','letter','broken');
